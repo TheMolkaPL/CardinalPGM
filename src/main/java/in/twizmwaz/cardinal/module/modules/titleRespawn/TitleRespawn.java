@@ -1,6 +1,8 @@
 package in.twizmwaz.cardinal.module.modules.titleRespawn;
 
 import in.twizmwaz.cardinal.GameHandler;
+import in.twizmwaz.cardinal.chat.ChatConstant;
+import in.twizmwaz.cardinal.chat.LocalizedChatMessage;
 import in.twizmwaz.cardinal.event.MatchStartEvent;
 import in.twizmwaz.cardinal.module.TaskedModule;
 import in.twizmwaz.cardinal.util.PlayerUtils;
@@ -8,9 +10,11 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
+import net.md_5.bungee.api.chat.TextComponent;
 import org.bukkit.ChatColor;
 import org.bukkit.GameMode;
 import org.bukkit.Location;
+import org.bukkit.entity.EntityType;
 import org.bukkit.entity.Horse;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
@@ -22,6 +26,7 @@ import org.bukkit.event.entity.PlayerDeathEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.event.player.PlayerRespawnEvent;
 import org.bukkit.event.player.PlayerTeleportEvent;
+import org.bukkit.event.vehicle.VehicleExitEvent;
 import org.bukkit.potion.PotionEffect;
 import org.bukkit.potion.PotionEffectType;
 
@@ -34,15 +39,13 @@ public class TitleRespawn implements TaskedModule {
         // Make the horse invisible for players, so they can't see them
         new PotionEffect(PotionEffectType.INVISIBILITY, Integer.MAX_VALUE, 1),
         // Prevert the horse from moving
-        new PotionEffect(PotionEffectType.SPEED, Integer.MAX_VALUE, 0)
+        new PotionEffect(PotionEffectType.SLOW, Integer.MAX_VALUE, 10)
     };
 
     // Module's settings
     private final int delay;
     private final boolean auto;
     private final boolean blackout;
-    // ^ not really sure what is this - is it
-    // https://github.com/twizmwazin/CardinalPGM/issues/699#issuecomment-111310151 ?
     private final boolean spectate;
     private final boolean bed;
 
@@ -63,8 +66,8 @@ public class TitleRespawn implements TaskedModule {
     }
 
     /**
-     * This method is invoked 10 times in one second to update players titles
-     * and respawn them too. The BukkitScheduler is running with the 2 ticks
+     * This method is invoked 10 times in one second to update players titles 
+     * and respawn them too. The BukkitScheduler is running with the 2 ticks 
      * delay because 20 (ticks) / 10 (times) = 2
      */
     @Override
@@ -72,26 +75,52 @@ public class TitleRespawn implements TaskedModule {
         // Loop all dead players and check them
         for (UUID id : this.deadPlayers.keySet()) {
             Player player = GameHandler.getGameHandler().getPlugin().getServer().getPlayer(id);
-            if (this.canRespawn(id)) {
+            if (player == null) {
+                // Player has logged out
+                this.deadPlayers.remove(id);
+            } else if (this.canRespawn(id)) {
+                // Player can respawn - let him do it
                 if (this.auto) {
                     this.respawnPlayer(player);
                 } else {
-                    // TODO send a sub-title "Left click to respawn"
+                    player.setSubtitle(TextComponent.fromLegacyText(new LocalizedChatMessage(ChatConstant.UI_RESPAWN_CLICK).getMessage(player.getLocale())));
                 }
             } else {
-                // TODO send a sub-title "Left click to respawn in Xs"
+                // Player is waiting to the respawn
+                String respawn = Double.toString((this.deadPlayers.get(id) - System.currentTimeMillis()) / 1000.0);
+
+                if (this.auto) {
+                    player.setSubtitle(TextComponent.fromLegacyText(new LocalizedChatMessage(ChatConstant.UI_RESPAWN_AUTO, respawn).getMessage(player.getLocale())));
+                } else {
+                    player.setSubtitle(TextComponent.fromLegacyText(new LocalizedChatMessage(ChatConstant.UI_RESPAWN_SCHEDULE, respawn).getMessage(player.getLocale())));
+                }
             }
         }
     }
 
     /**
      * Checks if the specifited player can respawn by their UUID
-     * @param id UUID of player to check
-     * @return <code>true</code> if the player can respawn, otherwise
+     * @param player to check
+     * @return <code>true</code> if the player can respawn, otherwise 
      * <code>false</code>.
      */
-    public boolean canRespawn(UUID id) {
-        return this.deadPlayers.getOrDefault(id, Long.MIN_VALUE) <= System.currentTimeMillis();
+    public boolean canRespawn(UUID player) {
+        Long result = this.deadPlayers.get(player);
+        if (result != null) {
+            result = Long.MIN_VALUE;
+        }
+
+        return result <= System.currentTimeMillis();
+    }
+
+    /**
+     * Checks if the specifited player is dead
+     * @param player to check
+     * @return <code>true</code> if the player is dead, otherwise 
+     * <code>false</code>
+     */
+    public boolean isDead(UUID player) {
+        return this.deadPlayers.containsKey(player);
     }
 
     /**
@@ -99,8 +128,6 @@ public class TitleRespawn implements TaskedModule {
      * @param player to be respawned
      */
     public void respawnPlayer(Player player) {
-        // TODO kill the horse
-
         boolean bedLocation = false;
         Location location = player.getWorld().getSpawnLocation();
 
@@ -116,13 +143,19 @@ public class TitleRespawn implements TaskedModule {
         PlayerRespawnEvent respawnEvent = new PlayerRespawnEvent(player, location, bedLocation);
         GameHandler.getGameHandler().getPlugin().getServer().getPluginManager().callEvent(respawnEvent);
 
-        // Player is already reseted to the default clear state in the death
-        // event. We need only to set his gamemode to the survival mode.
+        // Player is already reset to the default clear state in the death
+        // event. We need only to set his gamemode to the survival mode nad
+        // remove potion effects.
+        player.removePotionEffect(PotionEffectType.BLINDNESS); // blackout
         player.setGameMode(GameMode.SURVIVAL);
+
+        player.hideTitle();
+        player.resetTitle();
+
+        this.deadPlayers.remove(player.getUniqueId());
         // There is no respawn cause, so we use UNKNOWN. PLUGIN is a plugin, not
         // this fake respawn!
         player.teleport(respawnEvent.getRespawnLocation(), PlayerTeleportEvent.TeleportCause.UNKNOWN);
-        this.deadPlayers.remove(player.getUniqueId());
 
         // Show this player to other online players
         for (Player online : GameHandler.getGameHandler().getPlugin().getServer().getOnlinePlayers()) {
@@ -134,17 +167,25 @@ public class TitleRespawn implements TaskedModule {
      * The main event listener of this module that listen the deaths
      */
     @EventHandler(priority = EventPriority.LOW)
-    public void onEntityDamage(EntityDamageEvent e) {
-        if (e.getEntity() instanceof Player) {
-            Player player = (Player) e.getEntity();
-            if (player.getHealth() != 0) {
+    public void onEntityDamage(EntityDamageEvent event) {
+        if (event.getEntity() instanceof Player) {
+            Player player = (Player) event.getEntity();
+
+            // Stop the code if the player don't dies.
+            double finalHealth = player.getHealth() - event.getDamage();
+            if (finalHealth > 0.0) {
                 return;
             }
 
+            // We can change player's health by the x method, but only on the
+            // server. We need cancel this event. Otherwise the damaged client
+            // shows the default Minecraft death screen.
+            event.setCancelled(true);
+
             this.deadPlayers.put(player.getUniqueId(), System.currentTimeMillis() + this.delay * 1000);
 
-            // We need to handle PlayerDeathEvent because this
-            // will broke many of Bukkit plugins.
+            // We need to handle PlayerDeathEvent because this module will break
+            // many of Bukkit plugins.
             PlayerDeathEvent deathEvent = new PlayerDeathEvent(player, Arrays.asList(player.getInventory().getContents()), player.getExpToLevel(), 0, 0, 0, "%s died because of respawn");
             GameHandler.getGameHandler().getPlugin().getServer().getPluginManager().callEvent(deathEvent);
 
@@ -162,38 +203,48 @@ public class TitleRespawn implements TaskedModule {
             player.setGameMode(GameMode.CREATIVE);
             PlayerUtils.resetPlayer(player);
 
-            if (!this.spectate) {
-                // We can do setWalkingSpeed(0.0), and give him potion speed 0, but
-                // he can jump. Overcast Network spawns a horse (?) and sets player
-                // as the passanger. We can do it by spawning a horse, giving
-                // invincible potion and sitting the player on the horse.
+            if (this.blackout) {
+                player.addPotionEffect(new PotionEffect(PotionEffectType.BLINDNESS, Integer.MAX_VALUE, 1));
+            }
 
+            if (!this.spectate) {
                 Horse fakeHorse = GameHandler.getGameHandler().getMatchWorld().spawn(player.getLocation(), Horse.class);
                 fakeHorse.setVariant(Horse.Variant.HORSE);
                 for (PotionEffect potion : HORSE_POTIONS) fakeHorse.addPotionEffect(potion);
                 fakeHorse.setPassenger(player);
             }
 
-            // TODO send only a title (not sub-title) "You died!" to the player
-            // subtitle should be sent by the run() method
+            // Send only a title (not sub-title) "You died!" to the player.
+            // Subtitle should be sent by the run() method
+            player.showTitle(TextComponent.fromLegacyText(ChatColor.RED + new LocalizedChatMessage(ChatConstant.UI_RESPAWN_DEAD).getMessage(player.getLocale())));
         }
     }
 
     /**
      * Event listener that listen to left mouse click to handle the respawn
+     * It must be LOW because it MUST be invoked before the observers module
      */
-    @EventHandler
-    public void onPlayerInteract(PlayerInteractEvent e) {
-        if (e.getAction() == Action.LEFT_CLICK_AIR || e.getAction() == Action.LEFT_CLICK_BLOCK) {
-            // Handle only if the auto mode is not enabled. Otherwise they should be
-            // auto respawned
-            if (!this.auto && this.deadPlayers.containsKey(e.getPlayer().getUniqueId())) {
-                long millis = this.deadPlayers.get(e.getPlayer().getUniqueId());
-
-                if (this.canRespawn(e.getPlayer().getUniqueId())) {
-                    this.respawnPlayer(e.getPlayer());
+    @EventHandler(priority = EventPriority.LOW)
+    public void onPlayerInteract(PlayerInteractEvent event) {
+        if (event.getAction() == Action.LEFT_CLICK_AIR || event.getAction() == Action.LEFT_CLICK_BLOCK) {
+            // Handle only if the auto mode is not enabled. Otherwise they
+            // should be auto respawned
+            Player player = event.getPlayer();
+            if (!this.auto && this.deadPlayers.containsKey(player.getUniqueId())) {
+                if (this.canRespawn(player.getUniqueId())) {
+                    this.respawnPlayer(player);
                 }
             }
+        }
+    }
+
+    /**
+     * Cancel dismounting the horse when player is dead
+     */
+    @EventHandler
+    public void onVehicleExit(VehicleExitEvent event) {
+        if (event.getExited() instanceof Player && event.getVehicle().getType() == EntityType.HORSE && this.isDead(((Player) event.getExited()).getUniqueId())) {
+            event.setCancelled(true);
         }
     }
 
@@ -201,12 +252,8 @@ public class TitleRespawn implements TaskedModule {
      * Listen to match start to begin allow respawning players
      */
     @EventHandler
-    public void onMatchStart(MatchStartEvent e) {
+    public void onMatchStart(MatchStartEvent event) {
         GameHandler.getGameHandler().getPlugin().getServer().getScheduler().scheduleSyncRepeatingTask(GameHandler.getGameHandler().getPlugin(), this, 0L, 2L);
     }
-
-    // TODO handle MANY, MANY events to prevert dead people to interact with the
-    // gameplay. I think we should do it in the ObserversModule, because
-    // listeners there are finished.
 
 }

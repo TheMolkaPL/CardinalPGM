@@ -13,6 +13,7 @@ import in.twizmwaz.cardinal.module.ModuleCollection;
 import in.twizmwaz.cardinal.module.modules.classModule.ClassModule;
 import in.twizmwaz.cardinal.module.modules.spawn.SpawnModule;
 import in.twizmwaz.cardinal.module.modules.team.TeamModule;
+import in.twizmwaz.cardinal.module.modules.titleRespawn.TitleRespawn;
 import in.twizmwaz.cardinal.module.modules.tutorial.Tutorial;
 import in.twizmwaz.cardinal.util.ItemUtils;
 import in.twizmwaz.cardinal.util.TeamUtils;
@@ -111,6 +112,10 @@ public class ObserverModule implements Module {
         }
     }
 
+    private boolean isObserver(Player player) {
+        return TeamUtils.getTeamByPlayer(player).isObserver() || !match.isRunning() || GameHandler.getGameHandler().getMatch().getModules().getModule(TitleRespawn.class).isDead(player.getUniqueId());
+    }
+
     @EventHandler
     public void onMatchEnd(MatchEndEvent event) {
         for (Player player : Bukkit.getOnlinePlayers()) {
@@ -150,21 +155,21 @@ public class ObserverModule implements Module {
 
     @EventHandler
     public void onBlockChange(BlockPlaceEvent event) {
-        if (TeamUtils.getTeamByPlayer(event.getPlayer()).isObserver() || !match.isRunning()) {
+        if (isObserver(event.getPlayer())) {
             event.setCancelled(true);
         }
     }
 
     @EventHandler
     public void onBlockChange(BlockBreakEvent event) {
-        if (TeamUtils.getTeamByPlayer(event.getPlayer()).isObserver() || !match.isRunning()) {
+        if (isObserver(event.getPlayer())) {
             event.setCancelled(true);
         }
     }
 
     @EventHandler
     public void onInteraction(PlayerInteractEvent event) {
-        if (TeamUtils.getTeamByPlayer(event.getPlayer()).isObserver() || !match.isRunning()) {
+        if (isObserver(event.getPlayer())) {
             if (!(event.getPlayer().getItemInHand() != null && event.getPlayer().getItemInHand().getType().equals(Material.WRITTEN_BOOK) && event.getPlayer().getItemInHand().hasItemMeta() && event.getPlayer().getItemInHand().getItemMeta().hasDisplayName() && event.getPlayer().getItemInHand().getItemMeta().getDisplayName().equals(ChatColor.AQUA + "" + ChatColor.BOLD + "Coming Soon"))) {
                 event.setCancelled(true);
             }
@@ -231,7 +236,7 @@ public class ObserverModule implements Module {
 
     @EventHandler
     public void onPlayerInteractEntity(PlayerInteractEntityEvent event) {
-        if (TeamUtils.getTeamByPlayer(event.getPlayer()).isObserver() || !match.isRunning()) {
+        if (isObserver(event.getPlayer())) {
             if (event.getRightClicked() instanceof Player) {
                 if (!TeamUtils.getTeamByPlayer((Player)event.getRightClicked()).isObserver()) {
                     event.getPlayer().openInventory(getFakeInventory((Player) event.getRightClicked(), event.getPlayer().getLocale()));
@@ -430,14 +435,14 @@ public class ObserverModule implements Module {
 
     @EventHandler
     public void onPlayerPickupExperience(PlayerPickupExperienceEvent event) {
-        if (TeamUtils.getTeamByPlayer(event.getPlayer()).isObserver() || !match.isRunning()) {
+        if (isObserver(event.getPlayer())) {
             event.setCancelled(true);
         }
     }
 
     @EventHandler
     public void onPlayerDropItem(PlayerDropItemEvent event) {
-        if (TeamUtils.getTeamByPlayer(event.getPlayer()).isObserver() || !match.isRunning()) {
+        if (isObserver(event.getPlayer())) {
             event.getItemDrop().remove();
         }
     }
@@ -454,12 +459,13 @@ public class ObserverModule implements Module {
 
     @EventHandler
     public void onPlayerDeath(PlayerDeathEvent event) {
-        if (TeamUtils.getTeamByPlayer(event.getEntity()) == null) {
-            event.getDrops().clear();
-            event.setDroppedExp(0);
-        } else if (TeamUtils.getTeamByPlayer(event.getEntity()).isObserver() || !match.isRunning()) {
-            event.getDrops().clear();
-            event.setDroppedExp(0);
+        // This method throws an UnsupportedOperationException
+        try {
+            if (TeamUtils.getTeamByPlayer(event.getEntity()) == null || isObserver(event.getEntity())) {
+                event.getDrops().clear(); // Method clear() throws this exception
+                event.setDroppedExp(0);
+            }
+        } catch (UnsupportedOperationException ignored) {
         }
     }
 
@@ -474,21 +480,21 @@ public class ObserverModule implements Module {
 
     @EventHandler
     public void onVehicleDamage(VehicleDamageEvent event) {
-        if (!match.isRunning() || event.getAttacker() instanceof Player && TeamUtils.getTeamByPlayer((Player) event.getAttacker()).isObserver()) {
+        if (event.getAttacker() instanceof Player && isObserver((Player) event.getAttacker())) {
             event.setCancelled(true);
         }
     }
 
     @EventHandler
     public void onVehicleEnter(VehicleEnterEvent event) {
-        if (!match.isRunning() || event.getEntered() instanceof Player && TeamUtils.getTeamByPlayer((Player) event.getEntered()).isObserver()) {
+        if (event.getEntered() instanceof Player && isObserver((Player) event.getEntered())) {
             event.setCancelled(true);
         }
     }
 
     @EventHandler
     public void onVehicleExit(VehicleExitEvent event) {
-        if (!match.isRunning() || event.getExited() instanceof Player && TeamUtils.getTeamByPlayer((Player) event.getExited()).isObserver()) {
+        if (event.getExited() instanceof Player && isObserver((Player) event.getExited())) {
             event.setCancelled(true);
         }
     }

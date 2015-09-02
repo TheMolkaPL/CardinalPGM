@@ -224,6 +224,10 @@
         <defaultChannelAdmin>Changed default channel to administrator chat.</defaultChannelAdmin>
         <defaultChannelTeam>Changed default channel to team chat.</defaultChannelTeam>
         <timeElapsed>Time Elapsed: {0}</timeElapsed>
+        <respawnDead>You died!</respawnDead>
+        <respawnAuto>Respawning in {0}s</respawnAuto>
+        <respawnClick>Left click to respawn</respawnClick>
+        <respawnSchedule>Left click to respawn in {0}s</respawnSchedule>
     </userInterface>
     <deathMsg>
         <explosionSelf>{0} 'sploded</explosionSelf>
